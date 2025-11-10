@@ -1,0 +1,103 @@
+#===============================================================================
+substitutions:
+  device_name: esp32s3-eth
+  room_friendly_name: quarto
+#===============================================================================
+
+esphome:
+  name: ${device_name}
+  platformio_options:
+    board_build.arduino.memory_type: qio_opi
+    board_build.flash_mode: dio
+    upload_speed: 921600
+    monitor_speed: 115200
+
+esp32:
+  board: esp32-s3-devkitc-1
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32_S3_BOX_BOARD: "y"
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+
+api:
+  password: !secret api_password
+  encryption:
+    key: !secret api_encryption_psk
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+ethernet:
+  type: W5500
+  clk_pin: GPIO13
+  mosi_pin: GPIO11
+  miso_pin: GPIO12
+  cs_pin: GPIO14
+  interrupt_pin: GPIO10
+  reset_pin: GPIO9
+
+#######################################
+### I2C Bus Configuration
+#######################################
+i2c:
+  sda: GPIO48
+  scl: GPIO47
+  id: camera_i2c_bus
+  frequency: 400kHz
+
+######################################
+### Camera 
+######################################
+
+esp32_camera:
+  name: ${room_friendly_name} Camera
+  id: quarto_camera # Adicionado ID para controle via switch
+  external_clock:
+    pin: GPIO3
+    frequency: 20MHz
+  i2c_id: camera_i2c_bus
+  data_pins: [GPIO41, GPIO45, GPIO46, GPIO42, GPIO40, GPIO38, GPIO15, GPIO18]
+  vsync_pin: GPIO1
+  href_pin: GPIO2
+  pixel_clock_pin: GPIO39
+  # REMOVIDO: power_down_pin, pois o switch controla o pino GPIO8 diretamente
+  # para evitar conflitos de inicialização.
+
+  resolution: 1280x1024
+  jpeg_quality: 30
+  vertical_flip: false
+  horizontal_mirror: false
+
+
+#######################################
+### Bluetooth Proxy
+#######################################
+
+esp32_ble_tracker:
+  scan_parameters:
+    #  only use these values on Ethernet not WIFI
+    interval: 1100ms
+    window: 1100ms
+    active: true
+
+bluetooth_proxy:
+  active: true
+
+
+#######################################
+### Switch Camera Power (Controle GPIO8)
+#######################################
+switch:
+  - platform: gpio
+    pin:
+      number: GPIO8 # Controla o pino de Power Down (hardware)
+      inverted: true # LOW = LIGAR, HIGH = DESLIGAR na câmara
+    name: "${room_friendly_name} Ligar/Desligar Câmera"
+    # REMOVIDAS as ações on_turn_on/off que causaram o erro
