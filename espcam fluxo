@@ -1,0 +1,53 @@
+esphome:
+  name: esp32-cam
+  friendly_name: esp32-cam
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "im0CLccpsqtJS0YjW1HRBSrPjR8L1Sd7b0EB7B54xMg="
+
+ota:
+  - platform: esphome
+    password: "fb7c0048b66e2a013847ecd89e7c4fda"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  manual_ip:
+    static_ip: 192.168.1.200 
+    gateway: 192.168.1.1
+    subnet: 255.255.255.0
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Esp32-Cam Fallback Hotspot"
+    password: "TNNiIsEIYkKa"
+    
+
+captive_portal:
+
+esp32_camera:
+  external_clock: 
+    pin: GPIO0
+    frequency: 20MHz
+  i2c_pins: 
+    sda: GPIO26
+    scl: GPIO27
+  data_pins: [GPIO5, GPIO18, GPIO19, GPIO21, GPIO36, GPIO39, GPIO34, GPIO35]
+  vsync_pin: GPIO25
+  href_pin: GPIO23
+  pixel_clock_pin: GPIO22
+  power_down_pin: GPIO32
+  
+
+  #Image settings
+  name: My Camera
+    
