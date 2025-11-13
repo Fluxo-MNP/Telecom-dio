@@ -1,0 +1,203 @@
+#===============================================================================
+substitutions:
+  device_name: esp32_camera
+  room_friendly_name: Antena
+#===============================================================================
+
+esphome:
+  name: ${device_name}
+  platformio_options:
+    board_build.arduino.memory_type: qio_opi
+    board_build.flash_mode: dio
+    upload_speed: 921600
+    monitor_speed: 115200
+
+esp32:
+  board: esp32-s3-devkitc-1
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32_S3_BOX_BOARD: "y"
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+
+api:
+  encryption:
+    key: "im0CLccpsqtJS0YjW1HRBSrPjR8L1Sd7b0EB7B54xMg="
+
+ota:
+  - platform: esphome
+    password: "fb7c0048b66e2a013847ecd89e7c4fda"
+
+
+ethernet:
+  type: W5500
+  clk_pin: GPIO13
+  mosi_pin: GPIO11
+  miso_pin: GPIO12
+  cs_pin: GPIO14
+  interrupt_pin: GPIO10
+  reset_pin: GPIO9
+
+######################################
+### Camera 
+######################################
+
+# Barramento I2C da câmera
+i2c:
+  - id: i2c_camera
+    sda: 48
+    scl: 47
+    scan: false
+
+# Barramento I2C do MPU6050
+  - id: i2c_mpu
+    sda: 21
+    scl: 17
+    scan: true
+
+
+esp32_camera:
+  name: ${room_friendly_name} Camera
+  external_clock:
+    pin: GPIO3
+    frequency: 20MHz
+  i2c_id: i2c_camera   # 🔹 em vez de i2c_pins
+  data_pins: [GPIO41, GPIO45, GPIO46, GPIO42, GPIO40, GPIO38, GPIO15, GPIO18]
+  vsync_pin: GPIO1
+  href_pin: GPIO2
+  pixel_clock_pin: GPIO39
+  power_down_pin: GPIO8
+  resolution: 640x480
+  jpeg_quality: 10
+    #resolution: 1280x1024
+    #jpeg_quality: 30
+  vertical_flip: false
+  horizontal_mirror: false
+  # aec_mode: MANUAL
+  # aec_value: 1200
+  # brightness: 2
+  # wb_mode: HOME
+  # agc_mode: AUTO
+
+
+#######################################
+### Bluetooth Proxy
+#######################################
+
+esp32_ble_tracker:
+  scan_parameters:
+    #  only use these values on Ethernet not WIFI
+    interval: 1100ms
+    window: 1100ms
+    active: true
+
+bluetooth_proxy:
+  active: true
+
+### MPU6050 (I2C separado)
+#######################################
+
+
+globals:
+  - id: acc_error_x
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+  - id: acc_error_y
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+  - id: acc_AngleY
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+  - id: acc_AngleX
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+
+
+
+script:
+  - id: calibrar_mpu
+    then:
+      - lambda: |-
+          float somaX = 0;
+          float somaY = 0;
+          for (int i = 0; i < 200; i++) {
+            if (id(accel_x).has_state() && id(accel_y).has_state() && id(accel_z).has_state()) {
+              float ax = id(accel_x).state;
+              float ay = id(accel_y).state;
+              float az = id(accel_z).state;
+              somaX += atan2(-ax, sqrt(ay*ay + az*az)) * 180.0 / 3.1415;
+              somaY += atan2(ay, sqrt(ax*ax + az*az)) * 180.0 / 3.1415;
+            }
+            delay(10);
+          }
+          id(acc_error_x) = somaX / 200.0;
+          id(acc_error_y) = somaY / 200.0;
+          ESP_LOGI("calib", "Calibração concluída! ErroX=%.2f ErroY=%.2f", id(acc_error_x), id(acc_error_y));
+
+# ⚡ Executa a calibração logo após o boot (1s depois)
+interval:
+  - interval: 1s
+    then:
+      - script.execute: calibrar_mpu
+
+# (Opcional) recalibração periódica
+  - interval: 10min
+    then:
+      - script.execute: calibrar_mpu
+
+sensor:
+  - platform: mpu6050
+    i2c_id: i2c_mpu   # 🔹 em vez de i2c_pins
+    address: 0x68
+    update_interval: 200ms
+    accel_x:
+      name: "MPU6050 Aceleração X"
+      id: accel_x
+    accel_y:
+      name: "MPU6050 Aceleração Y"
+      id: accel_y
+    accel_z:
+      name: "MPU6050 Aceleração Z"
+      id: accel_z
+
+  - platform: template
+    name: "Pitch Corrigido"
+    unit_of_measurement: "°"
+    update_interval: 200ms
+    lambda: |-
+      if (id(accel_x).has_state() && id(accel_y).has_state() && id(accel_z).has_state()) {
+        float ax = id(accel_x).state;
+        float ay = id(accel_y).state;
+        float az = id(accel_z).state;
+        float pitch = atan2(ay, sqrt(ax*ax + az*az)) * 180.0 / 3.1415;
+        float AccAngleY = id(acc_AngleY) + pitch - id(acc_error_y);
+        return AccAngleY;
+      } else {
+        return NAN;
+      }
+
+  - platform: template
+    name: "Roll Corrigido"
+    unit_of_measurement: "°"
+    update_interval: 200ms
+    lambda: |-
+      if (id(accel_x).has_state() && id(accel_y).has_state() && id(accel_z).has_state()) {
+        float ax = id(accel_x).state;
+        float ay = id(accel_y).state;
+        float az = id(accel_z).state;
+        float roll = atan2(-ax, sqrt(ay*ay + az*az)) * 180.0 / 3.1415;
+        float AccAngleX = id(acc_AngleX) + roll - id(acc_error_y);
+        return AccAngleX;
+      } else {
+        return NAN;
+      }
