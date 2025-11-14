@@ -1,0 +1,65 @@
+esphome:
+  name: esp32-cam
+  friendly_name: esp32-cam
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "HbW1woFbQvlM1wuVwNTx9BzSh00PM9bVLaYLjzoHngU="
+
+ota:
+  - platform: esphome
+    password: "fe797c69e24d1028d7d1100aa3ebb7f6"
+
+# Example configuration entry
+i2c:
+  - id: camera_i2c
+    sda: GPIO26
+    scl: GPIO27
+
+esp32_camera:
+  external_clock:
+    pin: GPIO0
+    frequency: 20MHz
+  i2c_id: camera_i2c
+  data_pins: [GPIO5, GPIO18, GPIO19, GPIO21, GPIO36, GPIO39, GPIO34, GPIO35]
+  vsync_pin: GPIO25
+  href_pin: GPIO23
+  pixel_clock_pin: GPIO22
+  power_down_pin: GPIO32
+
+  # Image settings
+  name: My Camera
+  # ...
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  manual_ip:
+    static_ip: 192.168.0.200  # CORRIGIDO para a sua sub-rede
+    gateway: 192.168.0.1      # Confirmado pelo ipconfig
+    subnet: 255.255.255.0
+    
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Esp32-Cam Fallback Hotspot"
+    password: "TNNiIsEIYkKa"
+    
+captive_portal:
+
+# Adiciona o componente Switch para o LED Flash
+switch:
+  - platform: gpio
+    pin: 
+      number: GPIO4 # GPIO4 é o pino do LED Flash na maioria das ESP32-CAMs
+      inverted: true # low = ON
+    name: "Câmera Luz Flash"
+    id: led_flash_camera 
+
