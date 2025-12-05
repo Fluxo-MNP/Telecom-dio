@@ -1,0 +1,96 @@
+esphome:
+  name: esp32-cam
+  friendly_name: esp32-cam
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "HbW1woFbQvlM1wuVwNTx9BzSh00PM9bVLaYLjzoHngU="
+
+ota:
+  - platform: esphome
+    password: "fe797c69e24d1028d7d1100aa3ebb7f6"
+
+i2c:
+  id: bus_a
+  sda: GPIO26
+  scl: GPIO27
+  scan: false
+
+wifi:
+  ssid: "OMP_Susu"
+  password: "22603379"
+  #manual_ip:
+  #  static_ip: 192.168.0.200
+  #  gateway: 192.168.0.1
+  #  subnet: 255.255.255.0
+    
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Esp32-Cam Fallback Hotspot"
+    password: "TNNiIsEIYkKa"
+    
+captive_portal:
+
+# Adiciona o servidor web para acesso via navegador
+web_server:
+  port: 200 # Opcional: define a porta HTTP, 80 é o padrão.
+
+switch:
+  - platform: gpio
+    pin: 
+      number: GPIO32
+      # inverted: True <--- REMOVA ESTA LINHA COMPLETAMENTE
+    name: "Câmera Módulo de Energia"
+    id: camera_module_power
+
+#switch:
+  #- platform: gpio
+    #pin: 
+      #number: GPIO32
+      #inverted: True # <--- ISSO VAI CORRIGIR O ERRO "unknown error"
+    #name: "Câmera Módulo de Energia"
+    #id: camera_module_power 
+    #internal: True
+
+
+esp32_camera:
+  i2c_id: bus_a
+
+  external_clock: 
+    pin: GPIO0
+    frequency: 16MHz
+  #reset_pin: GPIO15
+  
+  data_pins: [GPIO5, GPIO18, GPIO19, GPIO21, GPIO36, GPIO39, GPIO34, GPIO35]
+  vsync_pin: GPIO25
+  href_pin: GPIO23
+  pixel_clock_pin: GPIO22
+  #power_down_pin: GPIO32
+  #power_down_pin: # <--- REMOVIDO PARA EVITAR CONFLITO COM O SWITCH ACIMA
+  
+  # Image settings
+  name: My Camera
+  
+  # Parâmetros de Alta Qualidade
+  resolution: 800x600
+  jpeg_quality: 12
+  
+  horizontal_mirror: False
+  vertical_flip: False
+
+  # NOVOS AJUSTES PARA COR (BALANÇO DE BRANCO) - APENAS PARÂMETROS VÁLIDOS PARA ESP-IDF
+  wb_mode: CLOUDY
+  
+  # Outros parâmetros que são geralmente suportados:
+  brightness: 0
+  contrast: 0
+  saturation: 0
