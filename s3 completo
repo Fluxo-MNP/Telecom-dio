@@ -1,0 +1,106 @@
+#===============================================================================
+substitutions:
+  device_name: you-name-for-your-device
+  room_friendly_name: Maybe Your Workshop Room
+#===============================================================================
+
+esphome:
+  name: ${device_name}
+  platformio_options:
+    board_build.arduino.memory_type: qio_opi
+    board_build.flash_mode: dio
+    upload_speed: 921600
+    monitor_speed: 115200
+
+esp32:
+  board: esp32-s3-devkitc-1
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32_S3_BOX_BOARD: "y"
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+
+api:
+  encryption:
+    key: "HbW1woFbQvlM1wuVwNTx9BzSh00PM9bVLaYLjzoHngU="
+
+
+ota:
+  - platform: esphome
+    password: "fe797c69e24d1028d7d1100aa3ebb7f6"
+
+ethernet:
+  type: W5500
+  clk_pin: GPIO13
+  mosi_pin: GPIO11
+  miso_pin: GPIO12
+  cs_pin: GPIO14
+  interrupt_pin: GPIO10
+  reset_pin: GPIO9
+
+######################################
+### Camera 
+######################################
+
+esp32_camera:
+  name: ${room_friendly_name} Camera
+  external_clock:
+    pin: GPIO3
+    frequency: 20MHz
+  i2c_pins:
+    sda: GPIO48
+    scl: GPIO47
+  data_pins: [GPIO41, GPIO45, GPIO46, GPIO42, GPIO40, GPIO38, GPIO15, GPIO18]
+  vsync_pin: GPIO1
+  href_pin: GPIO2
+  pixel_clock_pin: GPIO39
+  power_down_pin: GPIO8
+  resolution: 800X600
+  jpeg_quality: 10
+    #resolution: 1280x1024
+    #jpeg_quality: 30
+  vertical_flip: false
+  horizontal_mirror: false
+  # aec_mode: MANUAL
+  # aec_value: 1200
+  # brightness: 2
+  # wb_mode: HOME
+  # Tente primeiro o modo automático para Exposure (AEC) e Gain (AGC)
+  #aec_mode: AUTO  # Adicione/Descomente
+  #agc_mode: AUTO  # Adicione/Descomente
+
+  # Tente remover o modo WB (White Balance) fixo para ver se melhora
+  wb_mode: CLOUDY # Comente ou remova
+  
+  # Outros parâmetros que são geralmente suportados:
+  brightness: 0
+  contrast: 0
+  saturation: 0
+
+#######################################
+### Bluetooth Proxy
+#######################################
+
+esp32_ble_tracker:
+  scan_parameters:
+    #  only use these values on Ethernet not WIFI
+    interval: 1100ms
+    window: 1100ms
+    active: true
+
+bluetooth_proxy:
+  active: true
+
+switch:
+  - platform: gpio
+    pin: 
+      number: GPIO04
+      # inverted: True <--- REMOVA ESTA LINHA COMPLETAMENTE
+    name: "Câmera Módulo de Energia"
+    id: camera_module_power
