@@ -1,0 +1,82 @@
+#include <Wire.h> // Para comunicação I2C
+#include <Adafruit_MPU6050.h>
+#include <Adafruit_Sensor.h>
+
+// --- CONFIGURAÇÃO DE ENDEREÇOS ---
+// Endereço I2C do PCA9548A.
+// Mantenha 0x70 se A0, A1, A2 estiverem no GND.
+const int MUX_ADDR = 0x70; 
+
+// Endereço I2C de TODOS os MPU6050.
+// 0x68 se AD0 for GND. 0x69 se AD0 for VCC.
+const int MPU_ADDR = 0x68; 
+
+// Array para armazenar 8 objetos MPU (um para cada canal)
+Adafruit_MPU6050 mpu[8]; 
+
+void selectChannel(uint8_t i) {
+  // Função para selecionar o canal (0 a 7) no multiplexador
+  if (i > 7) return; // Limita a 8 canais
+  
+  Wire.beginTransmission(MUX_ADDR);
+  Wire.write(1 << i); // Envia o valor (2^i) para selecionar o canal
+  Wire.endTransmission();
+}
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin(); // Inicia a comunicação I2C no Arduino
+
+  Serial.println("Iniciando MPU6050 em 8 canais...");
+
+  // --- Loop para Inicializar cada MPU ---
+  for (int i = 0; i < 8; i++) {
+    selectChannel(i);
+    delay(10); // Pequeno atraso para o MUX chavear
+    
+    // Tenta inicializar o MPU no endereço padrão (0x68)
+    if (!mpu[i].begin(MPU_ADDR)) { 
+      Serial.print("Canal ");
+      Serial.print(i);
+      Serial.println(": Falha ao encontrar/inicializar MPU6050. Verifique o wiring.");
+    } else {
+      Serial.print("Canal ");
+      Serial.print(i);
+      Serial.println(": Inicializado com sucesso!");
+      // Opcional: Configura o range de aceleração (ex: +/- 4G)
+      mpu[i].setAccelerometerRange(MPU6050_RANGE_4_G);
+    }
+  }
+}
+
+void loop() {
+  // --- Loop para Ler cada MPU ---
+  for (int i = 0; i < 8; i++) {
+    selectChannel(i); // Seleciona o canal MUX
+    delay(10); 
+
+    // Obtém o objeto MPU do canal atual (após selecionar o canal)
+    sensors_event_t a;
+    mpu[i].getAccelerometerSensor()->getEvent(&a);
+
+    Serial.print("MPU ");
+    Serial.print(i);
+    
+    // Verifica se os dados são válidos (a.acceleration.x será zero se o sensor falhar na leitura)
+    if (a.acceleration.x == 0.0 && a.acceleration.y == 0.0 && a.acceleration.z == 0.0) {
+        // Esta é uma checagem simples; um sensor não inicializado resultará em zero.
+        Serial.println(": ERRO DE LEITURA (Pode estar desconectado).");
+    } else {
+        Serial.print(" - Accel X: ");
+        Serial.print(a.acceleration.x);
+        Serial.print(" Y: ");
+        Serial.print(a.acceleration.y);
+        Serial.print(" Z: ");
+        Serial.print(a.acceleration.z);
+        Serial.println(" m/s^2");
+    }
+  }
+
+  Serial.println("---");
+  delay(500); // Espera meio segundo antes da próxima varredura
+}
