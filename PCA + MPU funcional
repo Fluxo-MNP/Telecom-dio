@@ -1,0 +1,82 @@
+import smbus
+import time
+
+# --- Configurações I2C ---
+BUS = smbus.SMBus(1)
+
+# Endereços
+PCA_ADDRESS = 0x70    # Endereço do Multiplexador
+SENSOR_ADDRESS = 0x68 # Endereço do MPU-6050
+
+# Registradores base (Onde começa o X de cada sensor)
+ACCEL_XOUT_H = 0x3B  # Sequência: X_H, X_L, Y_H, Y_L, Z_H, Z_L
+GYRO_XOUT_H  = 0x43  # Sequência: X_H, X_L, Y_H, Y_L, Z_H, Z_L
+PWR_MGMT_1   = 0x6B
+
+# Fatores de Escala
+ACCEL_SCALE = 16384.0
+GYRO_SCALE  = 131.0
+
+# ----------------------------------------------------
+# Funções de Controle
+# ----------------------------------------------------
+
+def set_channel(channel):
+    """Seleciona o canal no PCA9548A (0 a 7)."""
+    if channel < 0 or channel > 7:
+        BUS.write_byte(PCA_ADDRESS, 0)
+    else:
+        # Ativa o bit correspondente ao canal desejado
+        BUS.write_byte(PCA_ADDRESS, 1 << channel)
+    time.sleep(0.01)
+
+def read_word_2c(reg):
+    """Lê 16 bits e converte para valor com sinal."""
+    high = BUS.read_byte_data(SENSOR_ADDRESS, reg)
+    low = BUS.read_byte_data(SENSOR_ADDRESS, reg + 1)
+    value = (high << 8) + low
+    if (value >= 0x8000):
+        return -((65535 - value) + 1)
+    return value
+
+def init_sensor():
+    """Acorda o sensor no canal ativo."""
+    try:
+        BUS.write_byte_data(SENSOR_ADDRESS, PWR_MGMT_1, 0)
+    except:
+        pass
+
+# ----------------------------------------------------
+# Execução
+# ----------------------------------------------------
+
+if __name__ == "__main__":
+    # Inicializa todos os possíveis sensores
+    for c in range(8):
+        set_channel(c)
+        init_sensor()
+
+    while True:
+        for canal in range(8):
+            set_channel(canal)
+            
+            try:
+                # --- LEITURA ACELERAÇÃO (3 EIXOS) ---
+                ax = read_word_2c(ACCEL_XOUT_H) / ACCEL_SCALE
+                ay = read_word_2c(ACCEL_XOUT_H + 2) / ACCEL_SCALE
+                az = read_word_2c(ACCEL_XOUT_H + 4) / ACCEL_SCALE
+                
+                # --- LEITURA GIROSCÓPIO (3 EIXOS) ---
+                gx = read_word_2c(GYRO_XOUT_H) / GYRO_SCALE
+                gy = read_word_2c(GYRO_XOUT_H + 2) / GYRO_SCALE
+                gz = read_word_2c(GYRO_XOUT_H + 4) / GYRO_SCALE
+                
+                print(f"CH{canal} | ACCEL: {ax:+.2f}, {ay:+.2f}, {az:+.2f} g")
+                print(f"    | GYRO:  {gx:+.1f}, {gy:+.1f}, {gz:+.1f} dps")
+                
+            except IOError:
+                # Se não houver nada conectado no canal, ele pula silenciosamente
+                continue
+        
+        print("-" * 50)
+        time.sleep(0.5)
