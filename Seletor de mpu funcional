@@ -1,0 +1,203 @@
+import smbus
+import time
+import math
+import threading
+import os
+
+# --- Configurações I2C ---
+BUS = smbus.SMBus(1)
+PCA_ADDRESS = 0x70
+SENSOR_ADDRESS = 0x68
+
+# Registradores MPU6050
+PWR_MGMT_1   = 0x6B
+GYRO_CONFIG  = 0x1B
+ACCEL_CONFIG = 0x1C
+ACCEL_XOUT_H = 0x3B
+GYRO_XOUT_H  = 0x43
+
+# Escalas (Configuradas para +/- 2g e +/- 250°/s)
+ACCEL_SCALE = 16384.0 
+GYRO_SCALE  = 131.0   
+
+# --- Variáveis Globais de Controle ---
+solicitar_impressao = False
+executando = True
+
+# Estrutura de dados para as 8 antenas
+antenas = []
+for i in range(8):
+    antenas.append({
+        'roll': 0.0, 'pitch': 0.0, 'yaw': 0.0,
+        'gyroAngleZ': 0.0,
+        'accErrorX': 0.0, 'accErrorY': 0.0,
+        'gyroErrorX': 0.0, 'gyroErrorY': 0.0, 'gyroErrorZ': 0.0,
+        'last_time': time.time()
+    })
+
+# ----------------------------------------------------
+# Funções de Hardware (I2C)
+# ----------------------------------------------------
+
+def set_channel(channel):
+    """Seleciona o canal no Multiplexador PCA9548A."""
+    if 0 <= channel <= 7:
+        try:
+            BUS.write_byte(PCA_ADDRESS, 1 << channel)
+        except IOError:
+            pass
+    time.sleep(0.002)
+
+def read_raw_data(addr):
+    """Lê 6 bytes (X, Y, Z) de um registrador específico."""
+    try:
+        high = BUS.read_i2c_block_data(SENSOR_ADDRESS, addr, 6)
+        vals = []
+        for i in range(0, 6, 2):
+            v = (high[i] << 8) | high[i+1]
+            if v > 32767: v -= 65536
+            vals.append(v)
+        return vals
+    except:
+        return None
+
+# ----------------------------------------------------
+# Calibração e Lógica de Filtro
+# ----------------------------------------------------
+
+def calibrate_all():
+    """Inicializa os sensores e calcula o erro médio (Bias)."""
+    print("="*50)
+    print("INICIANDO CALIBRAÇÃO - MANTENHA TUDO PARADO")
+    print("="*50)
+    samples = 200
+    
+    for c in range(8):
+        set_channel(c)
+        try:
+            # Acorda o sensor e configura escalas
+            BUS.write_byte_data(SENSOR_ADDRESS, PWR_MGMT_1, 0x00)
+            time.sleep(0.05)
+            BUS.write_byte_data(SENSOR_ADDRESS, GYRO_CONFIG, 0x00)
+            BUS.write_byte_data(SENSOR_ADDRESS, ACCEL_CONFIG, 0x00)
+            
+            sum_acX, sum_acY = 0, 0
+            sum_gyX, sum_gyY, sum_gyZ = 0, 0, 0
+            valid_count = 0
+
+            for _ in range(samples):
+                a = read_raw_data(ACCEL_XOUT_H)
+                g = read_raw_data(GYRO_XOUT_H)
+                if a and g:
+                    ax, ay, az = a[0]/ACCEL_SCALE, a[1]/ACCEL_SCALE, a[2]/ACCEL_SCALE
+                    # Uso de atan2 para evitar divisão por zero na calibração
+                    sum_acX += (math.atan2(ay, math.sqrt(ax**2 + az**2)) * 180 / math.pi)
+                    sum_acY += (math.atan2(-ax, math.sqrt(ay**2 + az**2)) * 180 / math.pi)
+                    sum_gyX += g[0]/GYRO_SCALE
+                    sum_gyY += g[1]/GYRO_SCALE
+                    sum_gyZ += g[2]/GYRO_SCALE
+                    valid_count += 1
+                time.sleep(0.005)
+            
+            if valid_count > 0:
+                antenas[c]['accErrorX'] = sum_acX / valid_count
+                antenas[c]['accErrorY'] = sum_acY / valid_count
+                antenas[c]['gyroErrorX'] = sum_gyX / valid_count
+                antenas[c]['gyroErrorY'] = sum_gyY / valid_count
+                antenas[c]['gyroErrorZ'] = sum_gyZ / valid_count
+                print(f"[OK] Antena {c} calibrada.")
+            else:
+                print(f"[!] Antena {c} sem resposta.")
+        except IOError:
+            print(f"[ERRO] Falha de comunicação no canal {c}.")
+
+    print("\nSistema pronto! Pressione ENTER para ver os dados.")
+
+def thread_calculo_antenas():
+    """Processamento matemático contínuo em segundo plano."""
+    global executando
+    while executando:
+        for c in range(8):
+            set_channel(c)
+            acc_raw = read_raw_data(ACCEL_XOUT_H)
+            gyro_raw = read_raw_data(GYRO_XOUT_H)
+
+            if acc_raw and gyro_raw:
+                now = time.time()
+                dt = now - antenas[c]['last_time']
+                antenas[c]['last_time'] = now
+
+                # Acelerômetro (Gera a 'âncora' de inclinação)
+                ax, ay, az = acc_raw[0]/ACCEL_SCALE, acc_raw[1]/ACCEL_SCALE, acc_raw[2]/ACCEL_SCALE
+                
+                # atan2 resolve o erro de ZeroDivisionError
+                accAngleX = (math.atan2(ay, math.sqrt(ax**2 + az**2)) * 180 / math.pi) - antenas[c]['accErrorX']
+                accAngleY = (math.atan2(-ax, math.sqrt(ay**2 + az**2)) * 180 / math.pi) - antenas[c]['accErrorY']
+
+                # Giroscópio (Mede a velocidade de rotação)
+                gx = (gyro_raw[0]/GYRO_SCALE) - antenas[c]['gyroErrorX']
+                gy = (gyro_raw[1]/GYRO_SCALE) - antenas[c]['gyroErrorY']
+                gz = (gyro_raw[2]/GYRO_SCALE) - antenas[c]['gyroErrorZ']
+
+                # Filtro Complementar: combina estabilidade do Acc com rapidez do Gyro
+                antenas[c]['roll']  = 0.96 * (antenas[c]['roll']  + gx * dt) + 0.04 * accAngleX
+                antenas[c]['pitch'] = 0.96 * (antenas[c]['pitch'] + gy * dt) + 0.04 * accAngleY
+                
+                # Eixo Z (Yaw): Somente giroscópio (não há referência de gravidade para Z)
+                antenas[c]['gyroAngleZ'] += gz * dt
+                antenas[c]['yaw'] = antenas[c]['gyroAngleZ']
+
+        time.sleep(0.005)
+
+# ----------------------------------------------------
+# Interface e Teclado
+# ----------------------------------------------------
+
+def thread_teclado():
+    """Escuta comandos sem interromper os cálculos."""
+    global solicitar_impressao, executando
+    while executando:
+        entrada = input().lower().strip()
+        if entrada == 'q':
+            executando = False
+            break
+        else:
+            solicitar_impressao = True
+
+def mostrar_painel():
+    """Renderiza a tabela de dados no terminal."""
+    os.system('clear')
+    print("="*95)
+    print(f"{'MONITORAMENTO DE ANTENAS - FILTRO COMPLEMENTAR (ATAN2)':^95}")
+    print("="*95)
+    print(f"{'ANTENA':<8} | {'ROLL (X) - Inclinação':^23} | {'PITCH (Y) - Lateral':^23} | {'YAW (Z) - Giro Base':^23}")
+    print("-" * 95)
+    for i in range(8):
+        r, p, y = antenas[i]['roll'], antenas[i]['pitch'], antenas[i]['yaw']
+        print(f"Ant {i:<4} | {r:>+10.2f}°              | {p:>+10.2f}°              | {y:>+10.2f}°")
+    print("-" * 95)
+    print(">>> [ENTER]: Atualizar | [q + ENTER]: Sair")
+
+# ----------------------------------------------------
+# Loop Principal
+# ----------------------------------------------------
+
+if __name__ == "__main__":
+    calibrate_all()
+    
+    # Inicia Threads paralelas
+    t_calc = threading.Thread(target=thread_calculo_antenas, daemon=True)
+    t_keys = threading.Thread(target=thread_teclado, daemon=True)
+    t_calc.start()
+    t_keys.start()
+
+    try:
+        while executando:
+            if solicitar_impressao:
+                mostrar_painel()
+                solicitar_impressao = False
+            time.sleep(0.1)
+    except KeyboardInterrupt:
+        executando = False
+
+    print("\n[INFO] Sistema encerrado corretamente.")
